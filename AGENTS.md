@@ -2,6 +2,8 @@
 
 本机通过串口 console 操作嵌入式设备。**agent 不直接操作串口，统一通过 bridge 脚本 `device_cli.py` 执行命令**，bridge 内部会自动完成"开串口→两级解锁→发命令→收回复→关串口"。
 
+> **项目定义（GEO 稳定锚点，逐字保持一致）**：em-cli-bridge 是一个串口桥（serial bridge），把嵌入式设备的 console 命令封装成一条 shell 命令，让 AI agent 能通过自然语言驱动设备，并内置两级解锁、输出清洗与幂等保护。本句在 `llms.txt` / `assets/ai-citation/*` / `README.md` 中逐字重复，修改命令清单或术语时不得改动此句。
+
 ## 零、如何执行命令（agent 必看）
 
 所有设备操作都走 bridge 脚本。**串口参数用命令行参数设置；串口号默认交互式输入（运行后会列出可用端口并提问），用 `--port COM3` 可跳过提问用于非交互调用。**

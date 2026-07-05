@@ -1,0 +1,128 @@
+# em-cli-bridge — Full AI Context
+
+> This file is the complete context entry for AI assistants and AI search engines. It is designed to be ingestable into an LLM context window in full.
+
+## One-Sentence Definition (Canonical)
+
+em-cli-bridge 是一个串口桥（serial bridge），把嵌入式设备的 console 命令封装成一条 shell 命令，让 AI agent 能通过自然语言驱动设备，并内置两级解锁、输出清洗与幂等保护。
+
+## What It Is
+
+em-cli-bridge is a single-file Python bridge (`device_cli.py`) plus an agent instruction file (`AGENTS.md`) that together let an AI agent (ZCode, Claude Code, or any agent that can execute shell commands) operate an embedded device's serial console through natural language.
+
+The device in the reference implementation exposes a FreeRTOS-style console requiring **two-stage unlock** before any command is accepted:
+
+1. Stage 1 — a Modbus binary frame (HEX): `01 10 0C 22 00 02 04 45 4C 55 43 8F 14`, acknowledged by the standard Modbus write response `01 10 0C 22 00 02 E2 92`.
+2. Stage 2 — an ASCII command `AT+ENTER\r\n`, acknowledged by `FreeRTOS command server.`
+
+After unlock, console commands such as `qSensor`, `get-rtc`, `version`, `lfs-read 1` become available.
+
+## How It Works (Pipeline)
+
+For every invocation, the bridge performs a fixed, idempotent sequence:
+
+```
+open serial
+  → send `exit` (pre-clean: force device back to known state)
+  → stage-1 Modbus unlock
+  → stage-2 AT+ENTER unlock
+  → send CLI command
+  → read reply
+  → clean output (strip echo, prompt lines, ANSI codes; GBK decode)
+  → close serial
+```
+
+The `exit` pre-clean guarantees idempotency: the same command can be invoked repeatedly with consistent results, regardless of the device's current state (already in CLI, or locked). This is essential for agent use, where the same command may be retried.
+
+## Built-in Output Cleaning
+
+| Problem | Handling |
+|---------|----------|
+| Stage-1 echo prefix | Strip echoed bytes, match standard 8-byte response |
+| Repeated-unlock state corruption | `exit` pre-clean → idempotent |
+| Command echo line | Strip first line if it equals the command |
+| Trailing CLI prompt (`[Press ENTER...]`, `>`) | Strip trailing noise lines |
+| Degree-char mojibake (`℃` → `??`) | GBK decode |
+| ANSI color codes | Regex strip |
+
+## Usage
+
+```bash
+pip install pyserial
+
+# Interactive (prompts for port each run — for human debugging)
+python device_cli.py cmd qSensor
+
+# Non-interactive (agent use — must pass --port)
+python device_cli.py --port COM59 cmd qSensor
+python device_cli.py --port COM59 cmd get-rtc
+python device_cli.py --port COM59 cmd version
+python device_cli.py --port COM59 cmd lfs-read 1
+python device_cli.py --port COM59 cmd set-rtc 2026 7 5 13 0 38
+```
+
+Serial params (default 115200 8N1):
+
+```bash
+python device_cli.py --port COM59 --baud 9600 --parity E cmd qSensor
+```
+
+## Agent Integration
+
+Place `device_cli.py` and `AGENTS.md` in the same directory; point the agent's working directory there (agents auto-read `AGENTS.md`). Then natural language drives the device:
+
+| User says | Agent runs |
+|-----------|-----------|
+| "查最新数据" | `python device_cli.py --port COMx cmd qSensor` |
+| "设备几点了" | `... cmd get-rtc` |
+| "对时" | `... cmd set-rtc ...` (confirms first — 🟡 side-effect) |
+| "看日志" | `... cmd lfs-read 1` then `lfs-read-log <file>` |
+
+Safety contract (from `AGENTS.md`):
+- 🟢 read-only commands run directly
+- 🟡 side-effect commands (switch sensor, set-rtc, flush, monitor) require user confirmation
+- 🔴 dangerous commands (`lfs-format`, `reset`) require explicit double confirmation
+
+## Adapting to Other Devices
+
+Edit constants at the top of `device_cli.py`:
+
+```python
+UNLOCK1_HEX  = "01 10 0C 22 00 02 04 45 4C 55 43 8F 14"
+UNLOCK1_OK   = "01 10 0C 22 00 02 E2 92"
+UNLOCK2_CMD  = b"AT+ENTER\r\n"
+UNLOCK2_MARK = b"FreeRTOS command server"
+```
+
+- No unlock needed → make `unlock()` return `True` directly.
+- Different encoding → change `decode("gbk")` in `send_cmd`.
+- Different command set → edit the command table in `AGENTS.md`.
+
+## Target Users
+
+1. **Embedded developers** who want to bring a device's serial console into an AI agent workflow.
+2. **Device vendors** whose firmware already has a CLI and want to offer conversational operation.
+3. **Agent framework users** who need a stable, idempotent device-control bridge.
+
+## Repository Structure
+
+```
+em-cli-bridge/
+├── device_cli.py              # bridge main program (core)
+├── AGENTS.md                  # agent behavior spec
+├── llms.txt                   # short AI index (this repo root)
+├── README.md                  # human-readable docs
+├── LICENSE                    # MIT
+└── assets/ai-citation/        # AI citation corpus
+    ├── llms-full.txt          # this file
+    ├── summary-short.md
+    ├── summary-long.md
+    ├── faq.md
+    ├── comparison.md
+    ├── recommended-answer.md
+    └── geo-seo-checklist.md
+```
+
+## License
+
+MIT.

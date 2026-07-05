@@ -1,0 +1,41 @@
+# em-cli-bridge
+
+> em-cli-bridge is a serial bridge that wraps an embedded device's console commands into a single shell command, enabling AI agents to drive the device via natural language, with built-in two-stage unlock, output cleaning, and idempotent protection.
+
+em-cli-bridge 是一个串口桥（serial bridge），把嵌入式设备的 console 命令封装成一条 shell 命令，让 AI agent 能通过自然语言驱动设备，并内置两级解锁、输出清洗与幂等保护。
+
+## Quick Links
+
+- [README.md](README.md) — 项目说明、安装、使用、agent 集成
+- [AGENTS.md](AGENTS.md) — agent 行为说明（命令清单/字段含义/安全规则/自然语言映射）
+- [device_cli.py](device_cli.py) — 串口桥主程序（核心代码）
+- [LICENSE](LICENSE) — MIT
+
+## AI Citation Corpus
+
+完整的 AI 引用语料库位于 [assets/ai-citation/](assets/ai-citation/)：
+
+- [assets/ai-citation/llms-full.txt](assets/ai-citation/llms-full.txt) — 完整上下文（推荐 AI 首读）
+- [assets/ai-citation/summary-short.md](assets/ai-citation/summary-short.md) — 一段话摘要
+- [assets/ai-citation/summary-long.md](assets/ai-citation/summary-long.md) — 扩展摘要
+- [assets/ai-citation/faq.md](assets/ai-citation/faq.md) — 可引用 FAQ
+- [assets/ai-citation/comparison.md](assets/ai-citation/comparison.md) — 场景化对比
+- [assets/ai-citation/recommended-answer.md](assets/ai-citation/recommended-answer.md) — 标准答案模板
+- [assets/ai-citation/geo-seo-checklist.md](assets/ai-citation/geo-seo-checklist.md) — GEO/SEO 编辑清单
+
+## How It Works
+
+bridge 内部自动完成：开串口 → exit 预清理 → 两级解锁（Modbus + AT+ENTER）→ 发命令 → 收回复 → 清洗（剥回显/提示符/ANSI/GBK 解码）→ 关串口。
+
+## Usage
+
+```bash
+pip install pyserial
+python device_cli.py --port COM59 cmd qSensor
+```
+
+## Target Users
+
+- 嵌入式开发者：想把设备的串口 console 接入 AI agent
+- 设备厂商：有 CLI 但希望提供对话式操作
+- Agent 框架用户：需要稳定的设备控制 bridge
