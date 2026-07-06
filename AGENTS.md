@@ -6,6 +6,10 @@
 
 ## 零、如何执行命令（agent 必看）
 
+em-cli-bridge 有两种接入方式：**shell bridge**（`device_cli.py`，本节）和 **MCP server**（`mcp_server.py`，见第六节）。两者共享同一套串口内核，能力相同，**同一时刻只用一种**（一个串口只能给一个进程）。
+
+### shell bridge 方式
+
 所有设备操作都走 bridge 脚本。**串口参数用命令行参数设置；串口号默认交互式输入（运行后会列出可用端口并提问），用 `--port COM3` 可跳过提问用于非交互调用。**
 
 ```
@@ -18,7 +22,10 @@ python device_cli.py [串口参数] cmd <CLI命令及参数>
 - `--bytesize 8`   数据位 5/6/7/8（默认 8）
 - `--parity N`     校验位 N/E/O/M/S（默认 N）
 - `--stopbits 1`   停止位 1/1.5/2（默认 1）
+- `--config PATH`  指定设备配置文件（默认按优先级查找 device.json，见第五节）
+- `--timeout N`    命令读取超时秒数（默认读配置，再默认 1.5）
 - `--debug`        打印收发细节到 stderr
+- `--version`      查看版本
 
 示例：
 
@@ -28,13 +35,14 @@ python device_cli.py --baud 9600 cmd qSensor           # 改波特率
 python device_cli.py --port COM3 cmd qSensor           # agent 非交互调用
 python device_cli.py cmd get-rtc
 python device_cli.py cmd lfs-read 1
-python device_cli.py cmd lfs-read-log 00000000_2000-03-11_0.txt
+python device_cli.py cmd lfs-read-log 00000000_2000-03-11_0.txt --long   # 大输出长超时（5s）
 python device_cli.py cmd set-rtc 2026 7 5 10 30 0
 python device_cli.py unlock                            # 仅测试两级解锁
 python device_cli.py cmd exit                          # 退出 CLI
 ```
 
 - bridge 的 **stdout 是设备的文本回复**（agent 直接解读）；其余提示都在 stderr。
+- **退出码**：0=成功 / 1=参数或配置错 / 2=解锁失败 / 3=串口错误（占用/不存在）/ 4=超时。agent 可据此做条件分支。
 - 串口被占用/失败时，脚本会**打印原因（如"被占用请关闭其他串口工具"）并让用户重新选口**，不会直接崩溃。
 
 ## 一、进入 / 退出 CLI（两级解锁机制）
@@ -113,12 +121,56 @@ agent 无需关心解锁细节，bridge 已自动处理。仅作背景说明：
 
 ## 五、初次部署（人工，仅一次）
 
-1. 安装 Python 依赖：`pip install pyserial`
-2. 测试解锁：`python device_cli.py --debug unlock`
+1. **装依赖（二选一）**：
+   - 一键脚本（推荐）：Windows 双击 `setup.bat` / Linux/macOS 运行 `./setup.sh`，自动建虚拟环境 + 装 pyserial。
+   - 手动：`pip install -r requirements.txt`（核心）+ `pip install -r requirements-mcp.txt`（仅 MCP server 需要）。
+2. **测试解锁**：`python device_cli.py --debug unlock`
    - 脚本会列出当前检测到的串口并问你要选哪个，输入对应 COM 口（如 `COM3`）。
    - 看到 stderr 输出 `[ok] 已打开 COMx @ 115200` 和 `[ok] 两级解锁成功` 即通。
    - 若提示"串口被占用"：先关闭其他串口工具（SSCOM / MobaXterm / 调试助手等），再按提示重选。
    - 若提示"串口不存在"：检查设备连接、USB 转串口驱动是否安装（设备管理器里端口有无黄色感叹号）。
-3. 测试一条命令：`python device_cli.py cmd qSensor`，能看到传感器数据即全通。
-4. 波特率等参数不匹配时用命令行参数调整，例如 `python device_cli.py --baud 9600 cmd qSensor`。
+3. **测试一条命令**：`python device_cli.py cmd qSensor`，能看到传感器数据即全通。
+4. **波特率等参数不匹配时**用命令行参数调整，例如 `python device_cli.py --baud 9600 cmd qSensor`。
 5. agent 非交互调用时需用 `--port` 指定串口号，避免卡在输入等待。
+6. **适配非默认设备**（可选）：复制 `device.json.example` 为 `device.json`，按设备修改解锁帧/编码/超时。加载优先级：`--config` 指定 > 工作目录 `device.json` > 用户目录 `~/.em-cli-bridge/device.json` > 内置默认值。无配置文件时用内置默认，零配置即可用。
+
+## 六、MCP server 方式（可选，v0.3.0+）
+
+除了 shell bridge，工程还提供 `mcp_server.py`——把设备能力暴露成 14 个标准 MCP tool（stdio 传输），供 Claude Desktop / Claude Code / Cursor / ZCode 等客户端使用。**复用 device_cli.py 内核，串口逻辑不重复**。
+
+### 何时用 MCP / 何时用 shell bridge
+
+| 场景 | 选择 |
+|------|------|
+| 用 ZCode、Claude Code 等**支持 shell** 的 agent | shell bridge（部署简单、依赖少） |
+| 用 Claude Desktop、Cursor 等**纯 MCP 客户端** | MCP server |
+| 想要**更强危险保护**（代码级硬拦截） | MCP server |
+| 想要**最快响应**（串口常开） | MCP server |
+
+**重要**：同一时刻只能用一种——MCP server 是长驻进程，启动后独占串口；如果 server 在跑，shell bridge 会因串口被占而失败（退出码 3）。
+
+### 14 个 tool 一览
+
+| tool | 对应命令 | 副作用 |
+|------|---------|--------|
+| `q_sensor` | qSensor | 🟢 |
+| `sw_sensor` | sw-sensor | 🟡 |
+| `get_rtc` / `set_rtc` | get-rtc / set-rtc | 🟢 / 🟡 |
+| `version` / `runtime` | version / runtime | 🟢 |
+| `lfs_read` / `lfs_read_log` / `lfs_read_errno` | lfs-read / lfs-read-log / lfs-read-errno | 🟢 |
+| `lfs_log_info` / `lfs_errno_info` | lfs-log-info / lfs-errno-info | 🟢 |
+| `lfs_flush` | lfs-flush | 🟡 |
+| `lfs_format` / `reset` | lfs-format / reset | 🔴（**必须传 `confirm=true`**，代码级硬保护） |
+
+### 启动 / 配置
+
+```bash
+pip install -r requirements-mcp.txt          # 装 mcp SDK
+python mcp_server.py --port COM59            # 手动测试
+```
+
+客户端配置见根目录 `.mcp.json`（工作区自动加载）或 `mcp-config-examples/`（手动合并）。详见 README 的"MCP server"章节。
+
+### MCP 模式的危险命令保护（与 shell 模式不同）
+
+shell 模式靠本文件"四、安全约定"的文字约束（agent 可能不遵守）；**MCP 模式是代码级硬保护**——`lfs_format` / `reset` 两个 tool 必须传 `confirm=true` 才执行，agent 即使没读本文件也无法误触发。

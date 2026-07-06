@@ -2,6 +2,17 @@
 
 本文件记录 em-cli-bridge 的版本演进。版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] — 2026-07-06
+
+### Changed
+- **AGENTS.md 同步 v0.3.0 能力**（这是 v0.3.0 时遗漏的文档同步）：
+  - "零、如何执行命令" 补全 v0.2.0+ 新参数（`--config`/`--timeout`/`--long`/`--version`）和退出码说明。
+  - "五、初次部署" 更新为支持一键脚本、`requirements.txt`、`device.json` 配置文件。
+  - 新增"六、MCP server 方式"章节：何时用 MCP/shell、14 个 tool 清单、危险命令代码级保护说明。
+- `geo-seo-checklist.md` Maintenance Rule 补"特别提醒 2"：接入方式（shell/MCP）描述变更需同步的文件清单。
+
+（本次为纯文档同步，无代码改动，patch 版本。）
+
 ## [0.3.0] — 2026-07-05
 
 ### Added
